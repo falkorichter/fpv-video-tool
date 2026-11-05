@@ -125,3 +125,32 @@ python3 -m unittest -v
 
 The test builds a synthetic clip with ffmpeg (test pattern, snow, bands) and
 checks detection and splitting.
+
+## How this was built
+
+This tool was written by Claude Code (model `claude-opus-5-5`) in a single
+session on 2026-11-05, tuned against a 40-minute FPV recording.
+
+### Original prompt
+
+> build a tool that reads an mp4 file and identifies white noise areas (more
+> than one second) and splits the file into individual chunks. use case: a
+> recording of an analog video, every time I change the battery on the
+> device, i have white noise. use the video stream, the audio is always quite
+> noisy
+
+(Mid-session follow-up: "I added a sample file (sample.mp4)".)
+
+### Usage / cost
+
+Token usage of the session, summed from the Claude Code session log
+(41 API responses, ~16 minutes wall-clock):
+
+| tokens | count |
+|---|---:|
+| input (uncached) | 86 |
+| cache write | 80,605 |
+| cache read | 2,851,403 |
+| output | 36,726 |
+
+Cost (from Claude Code `/usage`): _TODO_

@@ -1,0 +1,7 @@
+*.mp4
+*.mov
+*.mkv
+*.avi
+*_chunks/
+__pycache__/
+.DS_Store

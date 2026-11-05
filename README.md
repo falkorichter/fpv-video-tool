@@ -177,6 +177,66 @@ readable frames are mostly exact. Digits on a very bright background
 The digit bank was labelled from one DVR/goggle setup; a different OSD font
 or resolution will need new labels.
 
+### How the digit classifier was trained
+
+There is no pre-trained OCR model involved. The classifier is a labelled
+image bank plus nearest-neighbour matching, built from `sample.mp4` in this
+session. Plain OCR (tesseract) was never actually tried, because the digits
+are only about 10×17 px, blurry, and often on busy backgrounds. The steps:
+
+1. **Find the digit cells.** Magnified crops of a few clean frames showed
+   the `D.DDv` digits at x = 46 / 91 / 113 px, y = 443 px (at 640×480), each
+   about 14×22 px, with a jitter of 1–2 px between frames. The bottom-left
+   region was decoded at 4 fps, giving 9,634 frames.
+2. **Seed templates (discarded).** First, one hand-picked clean example of
+   each digit was used as a template, then refined by averaging confident
+   matches ("self-training"). This drifted: 3, 5, 6, 8 and 9 are so similar
+   at this size that the 5 and 9 templates turned into 3-like blobs. Also,
+   in this font the 6 renders like an "E".
+3. **Round 1 labels (cluster medoids).** Digit cells on a dark background
+   were centred on their bright pixels and k-means clustered into 120
+   groups. The most typical cell of each group was shown in a magnified,
+   numbered montage and labelled by eye: 90 digits, 15 *junk* (noise or
+   no OSD), and 14 skipped as ambiguous.
+4. **Rounds 2 and 3 (targeted labels).** The classifier was run on all
+   frames. Random cells it had predicted as the confusable digits (3/8/9,
+   then 0/3/5/6/8/9) were shown in new montages and labelled: 29 + 43
+   more. Again, anything not clearly readable was skipped.
+5. **Bank.** That makes 177 labelled cells:
+
+   | class | junk | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+   |---|---|---|---|---|---|---|---|---|---|---|---|
+   | cells | 15 | 8 | 3 | 6 | 53 | 17 | 22 | 22 | 3 | 19 | 9 |
+
+   Each cell is stored with its ±1 px shifted copies (up to 9 per cell),
+   giving 1,575 raw 8-bit images in `osd_digits.npz`.
+6. **Choosing the matcher.** The candidates were compared with 5-fold
+   cross-validation, keeping all shifted copies of a cell in the same fold:
+
+   | method | per-cell accuracy |
+   |---|---|
+   | 1-nearest-neighbour, normalised correlation | **91.9 %** |
+   | logistic regression on pixels | 79 % |
+   | PCA + LDA | 88 % (on its own training data) |
+   | per-class mean templates | visibly worse 8/9/3 separation |
+
+   1-NN was kept. At runtime each cell is normalised (zero mean, unit
+   variance), compared against all 1,575 bank images at every ±3 px shift,
+   and takes the label of the best match. The best similarity is the
+   confidence.
+7. **Check.** The filtered series shows the expected discharge curves:
+   about 4.2–4.35 V at rest, sag on take-off, then a slow drop to about
+   3.25 V per flight. Voltage jumps coincide with the battery swaps found
+   by `noisesplit.py`. On exactly the sampled frames, 6 of 7 random
+   readings matched the picture. The miss was a digit on a bright
+   background.
+
+Note: all labels were assigned by Claude from magnified montages; nobody
+reviewed them by hand. The scripts used for clustering and labelling were
+throwaway and are not in this repository, only their result
+(`osd_digits.npz`). To extend the bank for another OSD font or more
+accuracy, add labelled 22×14 cells (and their shifted copies) to that file.
+
 ## How this was built
 
 This tool was written by Claude Code (model `claude-opus-5-5`) in a single

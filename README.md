@@ -179,7 +179,8 @@ analog OSD shows in the bottom-left corner (`🔋 3.52v`) and writes
 - `<input>_voltage.html` — a viewer: the video next to a voltage graph of the
   whole recording plus a ±60 s detail graph. Click or drag in a graph to seek;
   the playhead and the big readout follow the video. A table view lists
-  10-second medians.
+  10-second medians. Below that, a flight analysis compares all batteries
+  (see [Flights: comparing batteries](#flights-comparing-batteries)).
 
 ```sh
 ./noisesplit.py -n sample.mp4 --report sample_segments.json   # optional: noise bands in the graph
@@ -193,6 +194,58 @@ The HTML references the video by relative path, so keep the two together.
 Open it straight from disk (`file://`). If you serve it over HTTP, the server
 must support range requests, or the browser can't seek in the video
 (Python's `http.server` doesn't).
+
+### Flights: comparing batteries
+
+Below the recording graphs the viewer has a **Flights** section:
+
+- **Stat tiles:** number of flights, total time under load, average flight
+  time, average load sag, discharge rate and end voltage.
+- **Flight time only:** the voltage with all pauses removed. The x axis counts
+  only time under load, so the flights sit back to back. Click to seek.
+- **Flights compared:** all flights overlaid from takeoff, with their mean.
+  Toggle the x axis between flight time and % of flight, and the y axis
+  between voltage and change from the start-of-flight voltage. Hover or pick
+  a chip to highlight one flight; click to jump the video there.
+- **Per-flight table:** rest voltage, start/end/mean voltage under load, sag,
+  V/min trend, time until 3.50 V, number of pauses.
+
+![Flights section: stat tiles, the voltage over flight time with pauses removed, and all flights overlaid with their mean and one flight highlighted](docs/voltage-flights.jpg)
+
+How the flights are derived from the voltage series:
+
+1. **No OSD voltage = no flight.** Readable stretches separated by more than
+   `--gap` seconds (default 3) without OSD are pauses.
+2. **Batteries.** A pause starts a new flight when the voltage afterwards is
+   ≥ 0.3 V higher than before *and* looks like a full pack (≥ 4.1 V/cell) or
+   a noise section (battery swap) lies in the pause.
+3. **Under load vs. resting.** An unloaded battery reads several tenths of a
+   volt higher. Resting stretches are cut out:
+   - the plateau before takeoff and after landing (a level stretch followed
+     or preceded by a fast sag of ≥ 0.15 V; also when the quad is held in
+     the hand with the OSD on);
+   - any stretch where the reading is perfectly flat, since it always
+     jitters under load.
+   Flights shorter than `--min-flight` seconds under load (default 30) are
+   listed but not compared.
+4. **Low-pass filter.** On the pauses-removed time axis, a weighted Gaussian
+   low-pass (`--lowpass` sigma, default 4 s) smooths each flight. After every
+   pause (and at takeoff) the readings are faded in linearly over `--settle`
+   seconds (default 15). That way the higher voltage of a battery that
+   recovered during the pause doesn't show up as a spike; the curve bridges
+   it from the readings around it.
+
+The flight analysis only needs the voltage series, so you can redo it (for
+example with other parameters) without reading the video again:
+
+```sh
+./osdvoltage.py sample_voltage.json --settle 20 --min-flight 45
+```
+
+The JSON gains an `analysis` object: `flights` (per-flight stats, plus the
+filtered curve `v` on a 1 s grid of flight time `ft` with matching video
+times `t`), a `summary`, and per-sample `rest`, `ft` (cumulative flight time,
+`null` when not flying) and `lowpass`.
 
 ### How it reads the digits
 

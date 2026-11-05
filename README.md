@@ -303,14 +303,23 @@ Follow-up prompt that added `osdvoltage.py`:
 
 ### Usage / cost
 
-Token usage of the session, summed from the Claude Code session log
-(41 API responses, ~16 minutes wall-clock):
+From Claude Code `/usage` at the end of the session. This covers
+everything: `noisesplit.py`, `osdvoltage.py` with the HTML viewer, tests
+and README.
 
-| tokens | count |
+| | |
 |---|---:|
-| input (uncached) | 86 |
-| cache write | 80,605 |
-| cache read | 2,851,403 |
-| output | 36,726 |
+| **Total cost** | **$9.45** |
+| API time | 20 min 34 s |
+| Wall-clock time | 1 h 21 min |
+| Code changes | 871 lines added, 0 removed |
 
-Cost (from Claude Code `/usage`): _TODO_
+| model | input | output | cache read | cache write | cost |
+|---|---:|---:|---:|---:|---:|
+| `claude-opus-5-5` | 3.1k | 122.0k | 18.2M | 420.5k | $9.45 |
+| `claude-haiku-5-5` | 1.2k | 19 | 0 | 0 | $0.0001 |
+
+98% of input tokens were served from the prompt cache (123 requests).
+By usage share, the biggest add-ons were browser automation
+(`/claude-in-chrome`, 16%), used to test the HTML viewer and take the
+screenshot, and the `/dataviz` charting guidelines (6%).

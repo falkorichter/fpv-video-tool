@@ -29,6 +29,46 @@ noisy all the time anyway).
 ./noisesplit.py --copy recording.mp4
 ```
 
+Example run on a 40-minute FPV recording (`sample.mp4`, not in the repo):
+
+```
+$ python3 noisesplit.py sample.mp4
+analyzing   2400.0s / 2408.4s ( 99.6%)
+
+9 noise section(s):
+  00:03:56.275 - 00:04:13.041  (  16.8s)
+  00:08:07.775 - 00:08:11.953  (   4.2s)
+  00:08:36.808 - 00:08:40.446  (   3.6s)
+  00:08:48.317 - 00:09:31.973  (  43.7s)
+  00:13:49.390 - 00:13:58.054  (   8.7s)
+  00:17:38.342 - 00:17:51.884  (  13.5s)
+  00:23:34.392 - 00:24:00.916  (  26.5s)
+  00:31:13.300 - 00:31:22.387  (   9.1s)
+  00:34:42.954 - 00:35:05.441  (  22.5s)
+
+10 chunk(s):
+    1  00:00:00.000 - 00:03:56.275  (  236.3s)
+    2  00:04:13.041 - 00:08:07.775  (  234.7s)
+    3  00:08:11.953 - 00:08:36.808  (   24.9s)
+    4  00:08:40.446 - 00:08:48.317  (    7.9s)
+    5  00:09:31.973 - 00:13:49.390  (  257.4s)
+    6  00:13:58.054 - 00:17:38.342  (  220.3s)
+    7  00:17:51.884 - 00:23:34.392  (  342.5s)
+    8  00:24:00.916 - 00:31:13.300  (  432.4s)
+    9  00:31:22.387 - 00:34:42.954  (  200.6s)
+   10  00:35:05.441 - 00:40:08.448  (  303.0s)
+[1/10] 00:00:00.000 - 00:03:56.275 -> sample_chunks/sample_001.mp4
+[2/10] 00:04:13.041 - 00:08:07.775 -> sample_chunks/sample_002.mp4
+[3/10] 00:08:11.953 - 00:08:36.808 -> sample_chunks/sample_003.mp4
+[4/10] 00:08:40.446 - 00:08:48.317 -> sample_chunks/sample_004.mp4
+[5/10] 00:09:31.973 - 00:13:49.390 -> sample_chunks/sample_005.mp4
+[6/10] 00:13:58.054 - 00:17:38.342 -> sample_chunks/sample_006.mp4
+[7/10] 00:17:51.884 - 00:23:34.392 -> sample_chunks/sample_007.mp4
+[8/10] 00:24:00.916 - 00:31:13.300 -> sample_chunks/sample_008.mp4
+[9/10] 00:31:22.387 - 00:34:42.954 -> sample_chunks/sample_009.mp4
+[10/10] 00:35:05.441 - 00:40:08.448 -> sample_chunks/sample_010.mp4
+```
+
 Next to the chunks, a `segments.json` lists the detected noise sections and
 chunk boundaries.
 
@@ -146,6 +186,8 @@ analog OSD shows in the bottom-left corner (`🔋 3.52v`) and writes
 ./osdvoltage.py sample.mp4 --segments sample_segments.json
 open sample_voltage.html
 ```
+
+![Voltage viewer: video with big voltage readout, a graph of the whole recording with battery swaps shaded, and a ±60 s detail graph with hover tooltip](docs/voltage-viewer.jpg)
 
 The HTML references the video by relative path, so keep the two together.
 Open it straight from disk (`file://`). If you serve it over HTTP, the server

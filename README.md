@@ -1,15 +1,21 @@
-# white-noise-separator
+# fpv-video-tool
 
-Tools for analog FPV recordings (goggles / DVR captures):
+Splits analog FPV recordings (goggles / DVR captures) into chunks wherever
+the picture turns into white noise for more than a second, e.g. at every
+battery swap.
 
-- `noisesplit.py` splits a recording into chunks wherever the picture turns
-  into white noise for more than a second — e.g. every battery swap.
-- `osdvoltage.py` reads the battery voltage from the OSD and builds an HTML
-  viewer that shows the voltage graph while you scrub through the video
-  (see [Battery voltage from the OSD](#battery-voltage-from-the-osd)).
+- `noisesplit.py`: the splitter (command line).
+- `splitserver.py`: a small web front end for a home server. Upload a
+  recording from your phone or laptop over Tailscale; the server splits it
+  and lists the chunks for download
+  (see [Upload server](#upload-server-over-tailscale)).
 
-Detection uses **only the video stream** (the audio of such recordings is
-noisy all the time anyway).
+Detection uses **only the video stream**, because the audio of such
+recordings is noisy all the time anyway.
+
+Analysing the recordings or chunks (battery voltage from the OSD, comparing
+flights) lives in a separate repository:
+[fpv-video-analysis](https://github.com/falkorichter/fpv-video-analysis).
 
 ## Requirements
 
@@ -84,7 +90,8 @@ usage: noisesplit.py [-h] [-o OUTDIR] [--min-noise MIN_NOISE]
                      [--max-extend MAX_EXTEND] [--pad PAD] [--tc-max TC_MAX]
                      [--vc-max VC_MAX] [--band-min BAND_MIN]
                      [--weak-tc WEAK_TC] [--copy] [--crf CRF]
-                     [--preset PRESET] [-n] [--features-csv FEATURES_CSV] [-q]
+                     [--preset PRESET] [-n] [--report REPORT]
+                     [--features-csv FEATURES_CSV] [-q]
                      input
 
 Split an analog video recording at white-noise sections.
@@ -128,9 +135,101 @@ options:
   --crf CRF             x264 CRF when re-encoding (default 18)
   --preset PRESET       x264 preset (default medium)
   -n, --dry-run         only detect and report, do not write video chunks
+  --report REPORT       also write the detected sections as JSON to this file
+                        (works with --dry-run)
   --features-csv FEATURES_CSV
                         write per-frame features to this CSV for tuning
   -q, --quiet
+```
+
+## Upload server (over Tailscale)
+
+`splitserver.py` runs on a machine at home and accepts uploads over HTTP.
+Each upload becomes a job; jobs are split one after another with
+`noisesplit.py` in the background. The page shows upload and split progress,
+and links to the chunks, `segments.json` and the log. Chunks are served with
+range support, so they play right in the browser. Jobs survive a restart:
+finished ones stay listed, interrupted ones start over.
+
+```sh
+./splitserver.py --data ~/fpv-uploads --split-args "--preset veryfast"
+tailscale serve --bg 8080        # https://<machine>.<tailnet>.ts.net -> 127.0.0.1:8080
+```
+
+Then open `https://<machine>.<tailnet>.ts.net` on any device in your
+tailnet. Drop videos on the page, or upload from a terminal:
+
+```sh
+curl -T recording.mp4 https://<machine>.<tailnet>.ts.net/upload/recording.mp4
+curl -T recording.mp4 "https://<machine>.<tailnet>.ts.net/upload/recording.mp4?copy=1"  # lossless, faster
+```
+
+**There is no authentication.** By default the server only listens on
+`127.0.0.1`. `tailscale serve` (not `tailscale funnel`, which would put it on
+the internet) makes it reachable from your tailnet only, with HTTPS.
+Alternatively, bind it directly to the machine's Tailscale address with
+`--host 100.x.y.z`.
+
+Storage: every job gets a directory `<data>/<job-id>/` holding the upload,
+`<name>_chunks/` (the chunks and `segments.json`), `log.txt` and `job.json`.
+Uploads are streamed to disk. Before accepting one, the server checks that
+there is room for about twice its size (upload plus chunks). Use
+`--delete-input` to keep only the chunks.
+
+API, for scripts:
+
+| | |
+|---|---|
+| `PUT /upload/<name>[?copy=1]` | upload a video (raw request body), starts a job, returns it |
+| `GET /api/jobs`, `GET /api/jobs/<id>` | job status (`status`, `progress`, `message`, `chunks`, `noise`, `files`) |
+| `DELETE /api/jobs/<id>` | delete a finished job and its files |
+| `GET /files/<id>/<path>` | download a file of the job (`?download` for an attachment) |
+
+To keep it running on a Linux home server, use a systemd unit, e.g.
+`/etc/systemd/system/splitserver.service`:
+
+```ini
+[Unit]
+Description=noisesplit upload server
+After=network-online.target
+
+[Service]
+User=fpv
+ExecStart=/usr/bin/python3 /opt/fpv-video-tool/splitserver.py --data /srv/fpv-uploads --split-args "--preset veryfast" -q
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl enable --now splitserver
+sudo tailscale serve --bg 8080
+```
+
+```
+usage: splitserver.py [-h] [--data DATA] [--host HOST] [--port PORT]
+                      [--split-args SPLIT_ARGS] [--delete-input]
+                      [--max-upload GIB] [--min-free GIB] [-q]
+
+HTTP upload front end for noisesplit (for use over Tailscale).
+
+options:
+  -h, --help            show this help message and exit
+  --data DATA           where uploads and chunks are stored (default
+                        ./uploads)
+  --host HOST           address to listen on (default 127.0.0.1; use
+                        `tailscale serve` or your Tailscale IP - there is no
+                        authentication)
+  --port PORT           port (default 8080)
+  --split-args SPLIT_ARGS
+                        extra noisesplit options for every job, e.g. "--preset
+                        veryfast"
+  --delete-input        delete the uploaded video once it is split (keep only
+                        the chunks)
+  --max-upload GIB      largest accepted upload in GiB (default 64)
+  --min-free GIB        keep at least this much disk free in GiB (default 1)
+  -q, --quiet           no request log
 ```
 
 ## How it works
@@ -167,170 +266,10 @@ All thresholds are options; see [All options](#all-options).
 python3 -m unittest -v
 ```
 
-The test builds a synthetic clip with ffmpeg (test pattern, snow, bands) and
-checks detection and splitting.
-
-## Battery voltage from the OSD
-
-`osdvoltage.py` reads the per-cell battery voltage that a Betaflight-style
-analog OSD shows in the bottom-left corner (`🔋 3.52v`) and writes
-
-- `<input>_voltage.json` — the time series, and
-- `<input>_voltage.html` — a viewer: the video next to a voltage graph of the
-  whole recording plus a ±60 s detail graph. Click or drag in a graph to seek;
-  the playhead and the big readout follow the video. A table view lists
-  10-second medians. Below that, a flight analysis compares all batteries
-  (see [Flights: comparing batteries](#flights-comparing-batteries)).
-
-```sh
-./noisesplit.py -n sample.mp4 --report sample_segments.json   # optional: noise bands in the graph
-./osdvoltage.py sample.mp4 --segments sample_segments.json
-open sample_voltage.html
-```
-
-![Voltage viewer: video with big voltage readout, a graph of the whole recording with battery swaps shaded, and a ±60 s detail graph with hover tooltip](docs/voltage-viewer.jpg)
-
-The HTML references the video by relative path, so keep the two together.
-Open it straight from disk (`file://`). If you serve it over HTTP, the server
-must support range requests, or the browser can't seek in the video
-(Python's `http.server` doesn't).
-
-### Flights: comparing batteries
-
-Below the recording graphs the viewer has a **Flights** section:
-
-- **Stat tiles:** number of flights, total time under load, average flight
-  time, average load sag, discharge rate and end voltage.
-- **Flight time only:** the voltage with all pauses removed. The x axis counts
-  only time under load, so the flights sit back to back. Click to seek.
-- **Flights compared:** all flights overlaid from takeoff, with their mean.
-  Toggle the x axis between flight time and % of flight, and the y axis
-  between voltage and change from the start-of-flight voltage. Hover or pick
-  a chip to highlight one flight; click to jump the video there.
-- **Per-flight table:** rest voltage, start/end/mean voltage under load, sag,
-  V/min trend, time until 3.50 V, number of pauses.
-
-![Flights section: stat tiles, the voltage over flight time with pauses removed, and all flights overlaid with their mean and one flight highlighted](docs/voltage-flights.jpg)
-
-How the flights are derived from the voltage series:
-
-1. **No OSD voltage = no flight.** Readable stretches separated by more than
-   `--gap` seconds (default 3) without OSD are pauses.
-2. **Batteries.** A pause starts a new flight when the voltage afterwards is
-   ≥ 0.3 V higher than before *and* looks like a full pack (≥ 4.1 V/cell) or
-   a noise section (battery swap) lies in the pause.
-3. **Under load vs. resting.** An unloaded battery reads several tenths of a
-   volt higher. Resting stretches are cut out:
-   - the plateau before takeoff and after landing (a level stretch followed
-     or preceded by a fast sag of ≥ 0.15 V; also when the quad is held in
-     the hand with the OSD on);
-   - any stretch where the reading is perfectly flat, since it always
-     jitters under load.
-   Flights shorter than `--min-flight` seconds under load (default 30) are
-   listed but not compared.
-4. **Low-pass filter.** On the pauses-removed time axis, a weighted Gaussian
-   low-pass (`--lowpass` sigma, default 4 s) smooths each flight. After every
-   pause (and at takeoff) the readings are faded in linearly over `--settle`
-   seconds (default 15). That way the higher voltage of a battery that
-   recovered during the pause doesn't show up as a spike; the curve bridges
-   it from the readings around it.
-
-The flight analysis only needs the voltage series, so you can redo it (for
-example with other parameters) without reading the video again:
-
-```sh
-./osdvoltage.py sample_voltage.json --settle 20 --min-flight 45
-```
-
-The JSON gains an `analysis` object: `flights` (per-flight stats, plus the
-filtered curve `v` on a 1 s grid of flight time `ft` with matching video
-times `t`), a `summary`, and per-sample `rest`, `ft` (cumulative flight time,
-`null` when not flying) and `lowpass`.
-
-### How it reads the digits
-
-1. 4 frames/s are decoded and scaled to 640×480; only the bottom-left corner
-   is kept.
-2. The OSD position is auto-calibrated once per file (override with
-   `--offset DX DY`).
-3. Each of the three digit cells of `D.DDv` is compared, with a ±3 px shift
-   search, to a bank of hand-labelled digit images from this OSD font
-   (`osd_digits.npz`, 1-nearest-neighbour on normalised pixels). The bank
-   also has a *junk* class for noise and frames without OSD.
-4. Low-similarity or implausible readings (outside `--vmin`/`--vmax`) are
-   dropped. The rest are median-filtered over `--window` seconds; raw
-   readings further than `--max-dev` from the median are treated as misreads.
-
-The JSON holds `t` (seconds), `raw` (the OSD reading or `null`),
-`confidence` (worst digit similarity) and `voltage` (filtered, `null` where
-unknown), plus `noise` sections and summary `stats`.
-
-Accuracy on the sample: about half of all frames are readable. The rest are
-noise, goggle menus or the post-flight stats screen. Spot checks of
-readable frames are mostly exact. Digits on a very bright background
-(snow, sky) are the weak spot, and the median filter absorbs most of those.
-The digit bank was labelled from one DVR/goggle setup; a different OSD font
-or resolution will need new labels.
-
-### How the digit classifier was trained
-
-There is no pre-trained OCR model involved. The classifier is a labelled
-image bank plus nearest-neighbour matching, built from `sample.mp4` in this
-session. Plain OCR (tesseract) was never actually tried, because the digits
-are only about 10×17 px, blurry, and often on busy backgrounds. The steps:
-
-1. **Find the digit cells.** Magnified crops of a few clean frames showed
-   the `D.DDv` digits at x = 46 / 91 / 113 px, y = 443 px (at 640×480), each
-   about 14×22 px, with a jitter of 1–2 px between frames. The bottom-left
-   region was decoded at 4 fps, giving 9,634 frames.
-2. **Seed templates (discarded).** First, one hand-picked clean example of
-   each digit was used as a template, then refined by averaging confident
-   matches ("self-training"). This drifted: 3, 5, 6, 8 and 9 are so similar
-   at this size that the 5 and 9 templates turned into 3-like blobs. Also,
-   in this font the 6 renders like an "E".
-3. **Round 1 labels (cluster medoids).** Digit cells on a dark background
-   were centred on their bright pixels and k-means clustered into 120
-   groups. The most typical cell of each group was shown in a magnified,
-   numbered montage and labelled by eye: 90 digits, 15 *junk* (noise or
-   no OSD), and 14 skipped as ambiguous.
-4. **Rounds 2 and 3 (targeted labels).** The classifier was run on all
-   frames. Random cells it had predicted as the confusable digits (3/8/9,
-   then 0/3/5/6/8/9) were shown in new montages and labelled: 29 + 43
-   more. Again, anything not clearly readable was skipped.
-5. **Bank.** That makes 177 labelled cells:
-
-   | class | junk | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
-   |---|---|---|---|---|---|---|---|---|---|---|---|
-   | cells | 15 | 8 | 3 | 6 | 53 | 17 | 22 | 22 | 3 | 19 | 9 |
-
-   Each cell is stored with its ±1 px shifted copies (up to 9 per cell),
-   giving 1,575 raw 8-bit images in `osd_digits.npz`.
-6. **Choosing the matcher.** The candidates were compared with 5-fold
-   cross-validation, keeping all shifted copies of a cell in the same fold:
-
-   | method | per-cell accuracy |
-   |---|---|
-   | 1-nearest-neighbour, normalised correlation | **91.9 %** |
-   | logistic regression on pixels | 79 % |
-   | PCA + LDA | 88 % (on its own training data) |
-   | per-class mean templates | visibly worse 8/9/3 separation |
-
-   1-NN was kept. At runtime each cell is normalised (zero mean, unit
-   variance), compared against all 1,575 bank images at every ±3 px shift,
-   and takes the label of the best match. The best similarity is the
-   confidence.
-7. **Check.** The filtered series shows the expected discharge curves:
-   about 4.2–4.35 V at rest, sag on take-off, then a slow drop to about
-   3.25 V per flight. Voltage jumps coincide with the battery swaps found
-   by `noisesplit.py`. On exactly the sampled frames, 6 of 7 random
-   readings matched the picture. The miss was a digit on a bright
-   background.
-
-Note: all labels were assigned by Claude from magnified montages; nobody
-reviewed them by hand. The scripts used for clustering and labelling were
-throwaway and are not in this repository, only their result
-(`osd_digits.npz`). To extend the bank for another OSD font or more
-accuracy, add labelled 22×14 cells (and their shifted copies) to that file.
+The tests build a synthetic clip with ffmpeg (test pattern, snow, bands).
+They check detection and splitting, and run the upload server end to end:
+upload, split, range download, delete, rejected file names and paths, and
+jobs surviving a restart.
 
 ## How this was built
 
@@ -347,18 +286,24 @@ session on 2026-11-05, tuned against a 40-minute FPV recording.
 
 (Mid-session follow-up: "I added a sample file (sample.mp4)".)
 
-Follow-up prompt that added `osdvoltage.py`:
+The same session then added `osdvoltage.py` (battery voltage from the OSD),
+which has since moved to
+[fpv-video-analysis](https://github.com/falkorichter/fpv-video-analysis).
 
-> can you look into the bottom left of the files, there is the battery
-> voltage. can you read it and export it into a json and also write a html
-> file with graphs and so I can see the voltage while scrubbing through the
-> video.
+Follow-up prompt that added `splitserver.py` and split the repository:
+
+> can we separte the readme into the splitting og the video and the analysis
+> of the chunks eventually those are 2 use cases and should propably be 2
+> repositories. actually split the two usecases, the analysis should go in
+> git@github.com:falkorichter/fpv-video-analysis.git and add a little http
+> interface so I could upload a video via tailscale and let my home server
+> split the videos into chunks
 
 ### Usage / cost
 
-From Claude Code `/usage` at the end of the session. This covers
-everything: `noisesplit.py`, `osdvoltage.py` with the HTML viewer, tests
-and README.
+From Claude Code `/usage` at the end of the first part of the session
+(`noisesplit.py`, `osdvoltage.py` with the HTML viewer, tests and README),
+before the flight analysis, the upload server and the repository split.
 
 | | |
 |---|---:|

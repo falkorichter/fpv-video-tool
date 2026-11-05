@@ -5,3 +5,6 @@
 *_chunks/
 __pycache__/
 .DS_Store
+*_voltage.json
+*_voltage.html
+*_segments.json

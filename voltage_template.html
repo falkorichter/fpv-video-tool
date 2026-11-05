@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ – battery voltage</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --surface-0: #f4f3f0;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7a7974;
+  --grid: #e6e5e1;
+  --axis: #c9c8c2;
+  --series-1: #2a78d6;
+  --raw: #a3a29c;
+  --noise: rgba(120, 118, 110, 0.16);
+  --playhead: #0b0b0b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --surface-0: #111110;
+    --surface-1: #1a1a19;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --grid: #2b2b29;
+    --axis: #45443f;
+    --series-1: #3987e5;
+    --raw: #6b6a64;
+    --noise: rgba(200, 198, 190, 0.10);
+    --playhead: #f0efec;
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --surface-0: #111110; --surface-1: #1a1a19; --text-primary: #f0efec;
+  --text-secondary: #c3c2b7; --text-muted: #8f8e86; --grid: #2b2b29; --axis: #45443f;
+  --series-1: #3987e5; --raw: #6b6a64; --noise: rgba(200, 198, 190, 0.10); --playhead: #f0efec;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.viz-root {
+  min-height: 100vh; background: var(--surface-0); color: var(--text-primary);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 20px;
+}
+h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+.sub { color: var(--text-secondary); margin: 0 0 16px; }
+.top { display: grid; grid-template-columns: minmax(0, 640px) minmax(220px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .top { grid-template-columns: 1fr; } }
+video { width: 100%; background: #000; border-radius: 8px; display: block; }
+.card { background: var(--surface-1); border-radius: 8px; padding: 16px; }
+.hero-label { color: var(--text-secondary); font-size: 13px; }
+.hero { font-size: 56px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.hero small { font-size: 18px; font-weight: 500; color: var(--text-secondary); }
+.meta { margin-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.meta b { color: var(--text-primary); font-weight: 500; }
+.chart-card { margin-top: 16px; }
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.chart-title { font-weight: 600; }
+.legend { display: flex; gap: 16px; color: var(--text-secondary); font-size: 13px; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key-line { width: 16px; height: 2px; background: var(--series-1); border-radius: 1px; }
+.key-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--raw); }
+.key-band { width: 14px; height: 10px; background: var(--noise); border: 1px solid var(--axis); }
+.key-play { width: 2px; height: 12px; background: var(--playhead); }
+.plot { position: relative; width: 100%; cursor: crosshair; touch-action: none; outline: none; }
+.plot:focus-visible { box-shadow: 0 0 0 2px var(--series-1); border-radius: 4px; }
+.plot canvas { display: block; width: 100%; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--axis); border-radius: 6px; padding: 6px 8px; font-size: 12px;
+  white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: none; font-variant-numeric: tabular-nums;
+}
+.tip .v { font-weight: 600; font-size: 13px; }
+.tip .row { display: flex; align-items: center; gap: 6px; }
+.tip .k { color: var(--text-secondary); }
+.hint { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+details { margin-top: 16px; }
+summary { cursor: pointer; color: var(--text-secondary); }
+table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+th, td { padding: 2px 12px 2px 0; text-align: right; }
+th { color: var(--text-secondary); font-weight: 500; }
+td a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <h1 id="title"></h1>
+  <p class="sub" id="sub"></p>
+
+  <div class="top">
+    <video id="video" src="__VIDEO_SRC__" controls preload="metadata"></video>
+    <div class="card">
+      <div class="hero-label">Battery (per cell)</div>
+      <div class="hero" id="hero">–</div>
+      <div class="meta">
+        <span>Time</span><b id="m-time">–</b>
+        <span>OSD reading</span><b id="m-raw">–</b>
+        <span>Session range</span><b id="m-range">–</b>
+      </div>
+    </div>
+  </div>
+
+  <div class="card chart-card">
+    <div class="chart-head">
+      <span class="chart-title">Whole recording</span>
+      <div class="legend">
+        <span><i class="key-line"></i>Voltage (filtered)</span>
+        <span><i class="key-dot"></i>Raw OSD reading</span>
+        <span><i class="key-band"></i>Noise / battery swap</span>
+        <span><i class="key-play"></i>Playhead</span>
+      </div>
+    </div>
+    <div class="plot" id="overview" tabindex="0" aria-label="Voltage over the whole recording. Click or drag to seek, arrow keys step 5 seconds."><canvas></canvas><div class="tip"></div></div>
+    <div class="chart-head" style="margin-top:16px">
+      <span class="chart-title">Around the playhead (±60 s)</span>
+    </div>
+    <div class="plot" id="detail" tabindex="0" aria-label="Voltage in the two minutes around the playhead. Click or drag to seek."><canvas></canvas><div class="tip"></div></div>
+    <div class="hint">Click or drag in a graph to seek the video · ←/→ steps 5 s when a graph is focused · space plays/pauses</div>
+  </div>
+
+  <details>
+    <summary>Table view (10-second medians)</summary>
+    <table id="table"><thead><tr><th>Time</th><th>Voltage (V/cell)</th></tr></thead><tbody></tbody></table>
+  </details>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const video = $("video");
+  const T = DATA.t, V = DATA.voltage, R = DATA.raw;
+  const dur = DATA.duration;
+
+  const fmt = (s) => {
+    s = Math.max(0, s);
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = Math.floor(s % 60);
+    const mm = String(m).padStart(2, "0"), ss = String(sec).padStart(2, "0");
+    return h ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+  };
+  const fv = (v) => (v == null ? "–" : v.toFixed(2) + " V");
+
+  $("title").textContent = DATA.input.split(/[\\/]/).pop() + " – battery voltage";
+  $("sub").textContent = `${fmt(dur)} · ${DATA.stats.readable} of ${DATA.stats.samples} samples readable · OSD offset ${DATA.osd_offset.join(", ")} px`;
+  $("m-range").textContent = DATA.stats.min == null ? "–" : `${DATA.stats.min.toFixed(2)} – ${DATA.stats.max.toFixed(2)} V`;
+
+  // y range: data extent padded to 0.1 V
+  let lo = Infinity, hi = -Infinity;
+  for (const v of V) if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (!isFinite(lo)) { lo = 3.0; hi = 4.3; }
+  lo = Math.floor((lo - 0.05) * 10) / 10; hi = Math.ceil((hi + 0.05) * 10) / 10;
+
+  const idxAt = (t) => {  // nearest sample index (binary search)
+    let a = 0, b = T.length - 1;
+    while (b - a > 1) { const m = (a + b) >> 1; if (T[m] < t) a = m; else b = m; }
+    return Math.abs(T[a] - t) <= Math.abs(T[b] - t) ? a : b;
+  };
+  const valueNear = (t) => {  // filtered value at t, looking up to 1 s around
+    const i = idxAt(t);
+    if (V[i] != null) return { i, v: V[i] };
+    for (let d = 1; d < 5; d++) {
+      if (i - d >= 0 && V[i - d] != null) return { i: i - d, v: V[i - d] };
+      if (i + d < V.length && V[i + d] != null) return { i: i + d, v: V[i + d] };
+    }
+    return { i, v: null };
+  };
+
+  const css = (name) => getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(name).trim();
+
+  function makeChart(el, height, rangeFn) {
+    const canvas = el.querySelector("canvas"), tip = el.querySelector(".tip");
+    const ctx = canvas.getContext("2d");
+    const pad = { l: 44, r: 12, t: 8, b: 24 };
+    let w = 0, hover = null, range = [0, dur];
+    const x = (t) => pad.l + (t - range[0]) / (range[1] - range[0]) * (w - pad.l - pad.r);
+    const tOf = (px) => range[0] + (px - pad.l) / (w - pad.l - pad.r) * (range[1] - range[0]);
+    const y = (v) => pad.t + (hi - v) / (hi - lo) * (height - pad.t - pad.b);
+
+    function draw() {
+      range = rangeFn();
+      const dpr = window.devicePixelRatio || 1;
+      w = el.clientWidth;
+      canvas.width = w * dpr; canvas.height = height * dpr; canvas.style.height = height + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, height);
+      ctx.font = "11px system-ui, sans-serif";
+
+      // noise bands
+      ctx.fillStyle = css("--noise");
+      for (const n of DATA.noise) {
+        const a = Math.max(x(n.start), pad.l), b = Math.min(x(n.end), w - pad.r);
+        if (b > a) ctx.fillRect(a, pad.t, b - a, height - pad.t - pad.b);
+      }
+      // grid + y labels
+      ctx.strokeStyle = css("--grid"); ctx.fillStyle = css("--text-muted"); ctx.lineWidth = 1;
+      ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      const step = hi - lo > 0.8 ? 0.2 : 0.1;
+      for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+        const yy = Math.round(y(v)) + 0.5;
+        ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(w - pad.r, yy); ctx.stroke();
+        ctx.fillText(v.toFixed(1), pad.l - 6, yy);
+      }
+      // x labels
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      const span = range[1] - range[0];
+      const tick = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600].find((s) => span / s <= 10) || 3600;
+      ctx.strokeStyle = css("--axis");
+      for (let t = Math.ceil(range[0] / tick) * tick; t <= range[1]; t += tick) {
+        const xx = Math.round(x(t)) + 0.5;
+        ctx.beginPath(); ctx.moveTo(xx, height - pad.b); ctx.lineTo(xx, height - pad.b + 4); ctx.stroke();
+        ctx.fillText(fmt(t), xx, height - pad.b + 6);
+      }
+      ctx.beginPath(); ctx.moveTo(pad.l, height - pad.b + 0.5); ctx.lineTo(w - pad.r, height - pad.b + 0.5); ctx.stroke();
+
+      const i0 = Math.max(0, idxAt(range[0]) - 1), i1 = Math.min(T.length - 1, idxAt(range[1]) + 1);
+      // raw dots
+      ctx.fillStyle = css("--raw");
+      const rr = span < 600 ? 2 : 1;
+      for (let i = i0; i <= i1; i++) if (R[i] != null) {
+        ctx.beginPath(); ctx.arc(x(T[i]), y(R[i]), rr, 0, Math.PI * 2); ctx.fill();
+      }
+      // filtered line (breaks at gaps)
+      ctx.strokeStyle = css("--series-1"); ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.beginPath(); let pen = false;
+      for (let i = i0; i <= i1; i++) {
+        if (V[i] == null || (pen && T[i] - T[i - 1] > 1.5)) { pen = false; if (V[i] == null) continue; }
+        const xx = x(T[i]), yy = y(V[i]);
+        if (pen) ctx.lineTo(xx, yy); else { ctx.moveTo(xx, yy); pen = true; }
+      }
+      ctx.stroke();
+      // playhead
+      const ph = x(video.currentTime || 0);
+      if (ph >= pad.l && ph <= w - pad.r) {
+        ctx.strokeStyle = css("--playhead"); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(ph, pad.t); ctx.lineTo(ph, height - pad.b); ctx.stroke();
+      }
+      // hover crosshair + marker
+      if (hover != null) {
+        const t = tOf(hover), { i, v } = valueNear(t);
+        const hx = x(T[i]);
+        ctx.strokeStyle = css("--text-muted"); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(Math.round(hx) + 0.5, pad.t); ctx.lineTo(Math.round(hx) + 0.5, height - pad.b); ctx.stroke();
+        if (v != null) {
+          ctx.fillStyle = css("--series-1"); ctx.strokeStyle = css("--surface-1"); ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(hx, y(v), 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        }
+        tip.replaceChildren();
+        const head = document.createElement("div"); head.className = "k"; head.textContent = fmt(T[i]);
+        const r1 = document.createElement("div"); r1.className = "row";
+        const k1 = document.createElement("i"); k1.className = "key-line";
+        const v1 = document.createElement("span"); v1.className = "v"; v1.textContent = fv(v);
+        const l1 = document.createElement("span"); l1.className = "k"; l1.textContent = "filtered";
+        r1.append(k1, v1, l1);
+        const r2 = document.createElement("div"); r2.className = "row";
+        const k2 = document.createElement("i"); k2.className = "key-dot";
+        const v2 = document.createElement("span"); v2.textContent = fv(R[i]);
+        const l2 = document.createElement("span"); l2.className = "k"; l2.textContent = "OSD";
+        r2.append(k2, v2, l2);
+        tip.append(head, r1, r2);
+        tip.style.display = "block";
+        const tw = tip.offsetWidth;
+        tip.style.left = (hx + 12 + tw > w ? hx - 12 - tw : hx + 12) + "px";
+        tip.style.top = pad.t + "px";
+      } else tip.style.display = "none";
+    }
+
+    let dragging = false;
+    const seekTo = (e) => {
+      const r = el.getBoundingClientRect();
+      const t = Math.min(Math.max(tOf(e.clientX - r.left), 0), dur);
+      if (isFinite(t)) video.currentTime = t;
+    };
+    el.addEventListener("pointerdown", (e) => { dragging = true; el.setPointerCapture(e.pointerId); seekTo(e); });
+    el.addEventListener("pointermove", (e) => {
+      const r = el.getBoundingClientRect(); hover = e.clientX - r.left;
+      if (dragging) seekTo(e);
+      redraw();
+    });
+    el.addEventListener("pointerup", () => { dragging = false; });
+    el.addEventListener("pointerleave", () => { hover = null; redraw(); });
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") { video.currentTime = Math.max(0, video.currentTime - 5); e.preventDefault(); }
+      else if (e.key === "ArrowRight") { video.currentTime = Math.min(dur, video.currentTime + 5); e.preventDefault(); }
+      else if (e.key === " ") { video.paused ? video.play() : video.pause(); e.preventDefault(); }
+    });
+    return draw;
+  }
+
+  const charts = [
+    makeChart($("overview"), 220, () => [0, dur]),
+    makeChart($("detail"), 220, () => {
+      const c = video.currentTime || 0;
+      let a = c - 60, b = c + 60;
+      if (a < 0) { b -= a; a = 0; }
+      if (b > dur) { a = Math.max(0, a - (b - dur)); b = dur; }
+      return [a, b];
+    }),
+  ];
+  let queued = false;
+  function redraw() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; charts.forEach((d) => d()); updateReadout(); });
+  }
+  function updateReadout() {
+    const t = video.currentTime || 0, { i, v } = valueNear(t);
+    $("hero").replaceChildren(document.createTextNode(v == null ? "–" : v.toFixed(2)));
+    if (v != null) { const s = document.createElement("small"); s.textContent = " V"; $("hero").append(s); }
+    $("m-time").textContent = fmt(t);
+    $("m-raw").textContent = R[i] == null ? "not readable" : R[i].toFixed(2) + " V";
+  }
+  video.addEventListener("timeupdate", redraw);
+  video.addEventListener("seeking", redraw);
+  window.addEventListener("resize", redraw);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redraw);
+  // smoother playhead while playing
+  (function tick() { if (!video.paused) redraw(); requestAnimationFrame(tick); })();
+
+  // table view: 10 s medians
+  const tbody = document.querySelector("#table tbody");
+  for (let s = 0; s < dur; s += 10) {
+    const vals = [];
+    for (let i = idxAt(s); i < T.length && T[i] < s + 10; i++) if (V[i] != null) vals.push(V[i]);
+    if (!vals.length) continue;
+    vals.sort((p, q) => p - q);
+    const tr = document.createElement("tr");
+    const td1 = document.createElement("td"), a = document.createElement("a");
+    a.href = "#"; a.textContent = fmt(s);
+    a.addEventListener("click", (e) => { e.preventDefault(); video.currentTime = s; window.scrollTo({ top: 0, behavior: "smooth" }); });
+    td1.append(a);
+    const td2 = document.createElement("td"); td2.textContent = vals[vals.length >> 1].toFixed(2);
+    tr.append(td1, td2); tbody.append(tr);
+  }
+  redraw();
+})();
+</script>
+</body>
+</html>

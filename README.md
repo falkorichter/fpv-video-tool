@@ -1,8 +1,12 @@
 # white-noise-separator
 
-Split an analog video recording (e.g. FPV goggles / DVR capture) into chunks
-wherever the picture turns into white noise for more than a second — for
-example every time the battery of the transmitter is swapped.
+Tools for analog FPV recordings (goggles / DVR captures):
+
+- `noisesplit.py` splits a recording into chunks wherever the picture turns
+  into white noise for more than a second — e.g. every battery swap.
+- `osdvoltage.py` reads the battery voltage from the OSD and builds an HTML
+  viewer that shows the voltage graph while you scrub through the video
+  (see [Battery voltage from the OSD](#battery-voltage-from-the-osd)).
 
 Detection uses **only the video stream** (the audio of such recordings is
 noisy all the time anyway).
@@ -126,6 +130,53 @@ python3 -m unittest -v
 The test builds a synthetic clip with ffmpeg (test pattern, snow, bands) and
 checks detection and splitting.
 
+## Battery voltage from the OSD
+
+`osdvoltage.py` reads the per-cell battery voltage that a Betaflight-style
+analog OSD shows in the bottom-left corner (`🔋 3.52v`) and writes
+
+- `<input>_voltage.json` — the time series, and
+- `<input>_voltage.html` — a viewer: the video next to a voltage graph of the
+  whole recording plus a ±60 s detail graph. Click or drag in a graph to seek;
+  the playhead and the big readout follow the video. A table view lists
+  10-second medians.
+
+```sh
+./noisesplit.py -n sample.mp4 --report sample_segments.json   # optional: noise bands in the graph
+./osdvoltage.py sample.mp4 --segments sample_segments.json
+open sample_voltage.html
+```
+
+The HTML references the video by relative path, so keep the two together.
+Open it straight from disk (`file://`). If you serve it over HTTP, the server
+must support range requests, or the browser can't seek in the video
+(Python's `http.server` doesn't).
+
+### How it reads the digits
+
+1. 4 frames/s are decoded and scaled to 640×480; only the bottom-left corner
+   is kept.
+2. The OSD position is auto-calibrated once per file (override with
+   `--offset DX DY`).
+3. Each of the three digit cells of `D.DDv` is compared, with a ±3 px shift
+   search, to a bank of hand-labelled digit images from this OSD font
+   (`osd_digits.npz`, 1-nearest-neighbour on normalised pixels). The bank
+   also has a *junk* class for noise and frames without OSD.
+4. Low-similarity or implausible readings (outside `--vmin`/`--vmax`) are
+   dropped. The rest are median-filtered over `--window` seconds; raw
+   readings further than `--max-dev` from the median are treated as misreads.
+
+The JSON holds `t` (seconds), `raw` (the OSD reading or `null`),
+`confidence` (worst digit similarity) and `voltage` (filtered, `null` where
+unknown), plus `noise` sections and summary `stats`.
+
+Accuracy on the sample: about half of all frames are readable. The rest are
+noise, goggle menus or the post-flight stats screen. Spot checks of
+readable frames are mostly exact. Digits on a very bright background
+(snow, sky) are the weak spot, and the median filter absorbs most of those.
+The digit bank was labelled from one DVR/goggle setup; a different OSD font
+or resolution will need new labels.
+
 ## How this was built
 
 This tool was written by Claude Code (model `claude-opus-5-5`) in a single
@@ -140,6 +191,13 @@ session on 2026-11-05, tuned against a 40-minute FPV recording.
 > noisy
 
 (Mid-session follow-up: "I added a sample file (sample.mp4)".)
+
+Follow-up prompt that added `osdvoltage.py`:
+
+> can you look into the bottom left of the files, there is the battery
+> voltage. can you read it and export it into a json and also write a html
+> file with graphs and so I can see the voltage while scrubbing through the
+> video.
 
 ### Usage / cost
 

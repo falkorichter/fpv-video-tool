@@ -274,6 +274,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--preset", default="medium", help="x264 preset (default medium)")
     p.add_argument("-n", "--dry-run", action="store_true",
                    help="only detect and report, do not write video chunks")
+    p.add_argument("--report", type=Path,
+                   help="also write the detected sections as JSON to this file "
+                        "(works with --dry-run)")
     p.add_argument("--features-csv", type=Path,
                    help="write per-frame features to this CSV for tuning")
     p.add_argument("-q", "--quiet", action="store_true")
@@ -317,6 +320,8 @@ def main(argv: list[str] | None = None) -> int:
         "noise": [{"start": n.start, "end": n.end} for n in noise],
         "chunks": [{"start": c.start, "end": c.end} for c in chunks],
     }
+    if a.report:
+        a.report.write_text(json.dumps(report, indent=2))
     if a.dry_run:
         return 0
 
